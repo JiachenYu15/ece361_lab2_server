@@ -27,6 +27,7 @@
 #define QUERY 12
 #define QU_ACK 13
 
+/*Simple change*/
 /*clients login information*/
 struct client {
     char username[MAX_NAME];
