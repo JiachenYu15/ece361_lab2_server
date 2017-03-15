@@ -8,8 +8,8 @@
 #include <unistd.h>
 #include <errno.h>
 
-#define SERVER_TCP_PORT 3000 /* well-known port */
-#define BUFLEN 256  /* buffer length */
+#define SERVER_TCP_PORT 3001 /* well-known port */
+#define BUFLEN 1000  /* buffer length */
 #define MAX_NAME 20
 #define MAX_DATA 200
 
@@ -33,6 +33,7 @@
 struct client {
     char username[MAX_NAME];
     char password[14];
+    int socket_descriptor;
     struct client *next;
 };
 
@@ -43,7 +44,7 @@ struct session{
     struct session *next;
 };
 
-struct packet {
+struct lab3message {
     unsigned int type;
     unsigned int size;
     unsigned char source[MAX_NAME];
@@ -52,34 +53,39 @@ struct packet {
 
 struct parameters{
     int new_sock;
+    struct client* userdb;
     struct client** clientHead;
     struct session** sessionHead;
 };
 
 struct client* user_initialization(void) {
     struct client* head;
-    struct client A, B, C, D;
-    strcpy(A.username, "a");
-    strcpy(B.username, "b");
-    strcpy(C.username, "c");
-    strcpy(D.username, "d");
+    struct client *A = malloc(sizeof(struct client));
+    struct client *B = malloc(sizeof(struct client));
+    struct client *C = malloc(sizeof(struct client));
+    struct client *D = malloc(sizeof(struct client));
+    
+    strcpy(A->username, "a");
+    strcpy(B->username, "b");
+    strcpy(C->username, "c");
+    strcpy(D->username, "d");
 
-    strcpy(A.password, "1");
-    strcpy(B.password, "2");
-    strcpy(C.password, "3");
-    strcpy(D.password, "4");
+    strcpy(A->password, "1");
+    strcpy(B->password, "2");
+    strcpy(C->password, "3");
+    strcpy(D->password, "4");
 
-    head = &A;
-    A.next = &B;
-    B.next = &C;
-    C.next = &D;
-    D.next = NULL;
+    head = A;
+    A->next = B;
+    B->next = C;
+    C->next = D;
+    D->next = NULL;
 
     return head;
 }
 
-struct packet parser(char recMsg[BUFLEN]) {
-    struct packet tempPack;
+struct lab3message parser(char recMsg[]) {
+    struct lab3message tempPack;
 
     tempPack.type = atoi(strtok(recMsg, ":"));
     tempPack.size = atoi(strtok(NULL, ":"));
@@ -88,6 +94,14 @@ struct packet parser(char recMsg[BUFLEN]) {
 
     return tempPack;
 };
+
+char* packetToStr(struct lab3message packet) {
+    char dummy[BUFLEN];
+    sprintf(dummy, "%u:%u:%s:%s", packet.type, packet.size, packet.source, packet.data);
+    char* output = malloc(strlen(dummy) * sizeof (char));
+    strcpy(output, dummy);
+    return output;
+} 
 
 struct client* client_search(struct client* head, char* username){
     while(head != NULL){
@@ -109,11 +123,12 @@ struct session* session_search(struct session* head, int id){
     return NULL;
 }
 
-struct client* client_generate(struct client** head, char* client_id) {
+struct client* client_generate(struct client** head, char* client_id, int socket_descriptor) {
     if (client_search(*head, client_id) == NULL) {
         struct client* temp;
         temp = (struct client*) malloc(sizeof (struct client));
         strcpy(temp->username, client_id);
+        temp->socket_descriptor = socket_descriptor;
         if (*head == NULL) {
             *head = temp;
             (*head)->next = NULL;
@@ -149,8 +164,9 @@ struct session* session_generate(struct session** head, int id) {
 
 void* client_handler(void* sock) {
     int sockfd = ((struct parameters*) sock)->new_sock;
+    struct client* user_db = ((struct parameters*) sock)->userdb;
     struct client** clienthp = ((struct parameters*) sock)->clientHead;
-    //struct session** sessionhp = ((struct parameters*) sock)->sessionHead;
+    struct session** sessionhp = ((struct parameters*) sock)->sessionHead;
     int N, size;
     char* bpointer, rbuf[BUFLEN];
     while (1) { 
@@ -163,7 +179,8 @@ void* client_handler(void* sock) {
 
         printf("%s\n", rbuf);
         // Decode the message received.
-        struct packet temp ;//= parser(rbuf);
+        struct lab3message temp = parser(rbuf);
+/*
         if(!strcmp(rbuf, "add")){
             if(client_generate(clienthp, "first") != NULL)
                 printf("add success\n");
@@ -177,8 +194,45 @@ void* client_handler(void* sock) {
             else
                 printf("not found\n");
         }
+*/
         if (temp.type == LOGIN) {
-            
+            if (client_search(*clienthp, temp.source) != NULL) {
+                struct lab3message outpacket;
+                outpacket.type = LO_NACK;
+                strcpy(outpacket.data, "Already logged in.");
+                outpacket.size = strlen(outpacket.data);
+                strcpy(outpacket.source, temp.source);
+                char *dummy = packetToStr(outpacket);
+                write(sockfd, dummy, BUFLEN);
+                free(dummy); /*Send back lo_nack and state the reason*/
+            }
+            else{
+                struct client* tp = client_search(user_db, temp.source);
+                if(!strcmp(tp->password, temp.data)){
+                    /*password correct*/
+                    if(client_generate(clienthp, temp.source, sockfd) != NULL){
+                        /*lo_ack*/
+                        struct lab3message outpacket;
+                        outpacket.type = LO_ACK;
+                        outpacket.size = 0;
+                        strcpy(outpacket.data, "");
+                        strcpy(outpacket.source, temp.source); 
+                        char *dummy = packetToStr(outpacket);
+                        write(sockfd, dummy, BUFLEN);
+                        free(dummy);
+                    }
+                } else {
+                    /*Send back lo_nack and state the reason*/
+                    struct lab3message outpacket;
+                    outpacket.type = LO_NACK;
+                    strcpy(outpacket.data, "Incorrect Password.");
+                    outpacket.size = strlen(outpacket.data);
+                    strcpy(outpacket.source, temp.source);
+                    char *dummy = packetToStr(outpacket);
+                    write(sockfd, dummy, BUFLEN);
+                    free(dummy);
+                }
+            }
         } 
         
         else if (temp.type == EXIT) {
@@ -210,6 +264,7 @@ void* client_handler(void* sock) {
     return NULL;
 }
 
+
 int main(int argc, char **argv) {
     int n, bytes_to_read;
     int sd, new_sd, client_len, port;
@@ -221,7 +276,7 @@ int main(int argc, char **argv) {
     pthread_t t;
 
     /*User login Information*/
-    struct client* user = user_initialization();
+    struct client *user_all = user_initialization();
 
     /*Logged In User*/
     struct client* login = NULL;
@@ -262,6 +317,7 @@ int main(int argc, char **argv) {
 
         thread_parameter = malloc(sizeof(struct parameters));
         thread_parameter->new_sock = new_sd;
+        thread_parameter->userdb = user_all;
         thread_parameter->clientHead = &login;
         thread_parameter->sessionHead = &sessions;
         printf("after\n");
