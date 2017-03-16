@@ -32,7 +32,6 @@
 #define GEN_NACK 15
 #define EXIT_ACK 16
 
-/*Simple change*/
 
 /*clients login information*/
 struct client {
