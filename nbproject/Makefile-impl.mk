@@ -24,7 +24,7 @@ CLEAN_SUBPROJECTS=${CLEAN_SUBPROJECTS_${SUBPROJECTS}}
 
 
 # Project Name
-PROJECTNAME=server
+PROJECTNAME=ece361_lab2_server
 
 # Active Configuration
 DEFAULTCONF=Debug

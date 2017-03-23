@@ -7,6 +7,7 @@
 #include <strings.h>
 #include <unistd.h>
 #include <errno.h>
+#include <stdbool.h>
 
 // /login a 1 128.100.13.245 3000
 
@@ -32,13 +33,18 @@
 #define GEN_NACK 15
 #define EXIT_ACK 16
 
+typedef struct node {
+    int session_id;
+    struct node* next;
+} node_t;
 
 /*clients login information*/
 struct client {
     char username[MAX_NAME];
     char password[14];
     int socket_descriptor;
-    int session_id;
+    //int session_id;
+    node_t* session_hp;
     struct client *next;
 };
 
@@ -108,6 +114,65 @@ char* packetToStr(struct lab3message packet) {
     return output;
 }
 
+bool insertSessionToClient(node_t** head, int session_id) {
+    node_t* curr = *head;
+    node_t* newNode = malloc(sizeof (node_t));
+    newNode->session_id = session_id;
+    newNode->next = NULL;
+
+    // if this is the first session
+    if (curr = NULL) {
+        *head = newNode;
+        return true;
+    } else {
+        while (curr->next != NULL) {
+            curr = curr->next;
+        }
+        curr->next = newNode;
+        return true;
+    }
+}
+
+bool deleteSessionFromClient(node_t** head, int session_id) {
+    node_t* curr = *head;
+    node_t* temp = NULL;
+    node_t* next = NULL;
+
+    if (curr->session_id == session_id) { // this session is the head
+        next = (*head)->next;
+        free(*head);
+        *head = next;
+        return true;
+    }
+
+    // if it's not the head, we look at the rest of the list
+    while (curr->next != NULL && (curr->next)->session_id != session_id)
+        curr = curr->next;
+    if ((curr->next)->session_id != session_id) // the key was not found
+        return false;
+
+    temp = curr->next; // the one to delete
+    curr->next = temp->next; // set the previous pointer
+    free(temp);
+    return true;
+}
+
+node_t* searchSessionOfClient(node_t** head, int session_id) {
+    node_t* curr = *head;
+
+    if (curr->session_id == session_id) { // this session is the head
+        return curr;
+    }
+
+    // if it's not the head, we look at the rest of the list
+    while (curr->next != NULL && (curr->next)->session_id != session_id)
+        curr = curr->next;
+    if ((curr->next)->session_id != session_id) // the key was not found
+        return NULL;
+
+    return curr->next;
+}
+
 struct client* client_search(struct client* head, char* username) {
     while (head != NULL) {
         if (!strcmp(head->username, username)) {
@@ -165,7 +230,7 @@ struct client* client_generate(struct client** head, char* client_id, int socket
         struct client* temp;
         temp = (struct client*) malloc(sizeof (struct client));
         strcpy(temp->username, client_id);
-        temp->session_id = 0;
+        temp->session_hp = NULL;
         temp->socket_descriptor = socket_descriptor;
         temp->next = NULL;
         if (*head == NULL) {
@@ -208,7 +273,7 @@ void* client_handler(void* sock) {
     struct session** sessionhp = ((struct parameters*) sock)->sessionHead;
     int N, size;
     char* bpointer, rbuf[BUFLEN];
-    
+
     printf("Connection successful.\n");
     while (1) {
         bpointer = rbuf;
@@ -219,6 +284,7 @@ void* client_handler(void* sock) {
         }
 
         //printf("%s\n", rbuf);
+
         // Decode the message received.
         struct lab3message temp = parser(rbuf);
         if (temp.type == LOGIN) {
@@ -241,7 +307,7 @@ void* client_handler(void* sock) {
                 strcpy(outpacket.source, temp.source);
                 char *dummy = packetToStr(outpacket);
                 write(sockfd, dummy, BUFLEN);
-                free(dummy); /*Send back lo_nack and state the reason*/
+                free(dummy);
             } else {
                 struct client* tp = client_search(user_db, temp.source);
                 if (!strcmp(tp->password, temp.data)) {
@@ -258,7 +324,6 @@ void* client_handler(void* sock) {
                         free(dummy);
                     }
                 } else {
-                    /*Send back lo_nack and state the reason*/
                     struct lab3message outpacket;
                     outpacket.type = LO_NACK;
                     strcpy(outpacket.data, "Incorrect Password.");
@@ -270,15 +335,21 @@ void* client_handler(void* sock) {
                 }
             }
         } else if (temp.type == EXIT) { //close this socket 
-            struct client* tp = client_search(*clienthp, temp.source);
-            if (tp != NULL) { //logged in
-                if (tp->session_id != 0) { //in a session so delete it
-                    struct session* sp = session_search(*sessionhp, tp->session_id);
+            struct client* cp = client_search(*clienthp, temp.source);
+            if (cp != NULL) { //logged in
+                node_t* curr = cp->session_hp;
+                while (curr != NULL) { // delete this client from every session it's in
+                    struct session* sp = session_search(*sessionhp, curr->session_id);
                     client_delete(&(sp->connected_client), temp.source);
+
                     //if this is the last person in the session, delete the session
                     if (sp->connected_client == NULL) {
-                        session_delete(sessionhp, tp->session_id);
+                        session_delete(sessionhp, curr->session_id);
                     }
+
+                    curr = curr->next;
+                    int toBeDeleted = curr->session_id;
+                    deleteSessionFromClient(&(cp->session_hp), toBeDeleted); // free memory of this session from client
                 }
                 client_delete(clienthp, temp.source); //log out
             }
@@ -291,37 +362,16 @@ void* client_handler(void* sock) {
             char *dummy = packetToStr(outpacket);
             write(sockfd, dummy, BUFLEN);
             free(dummy);
+
             printf("Exit successful. \n");
             close(sockfd);
             break;
         } else if (temp.type == JOIN) {
-            struct client* jointemp = client_search(*clienthp, temp.source);
+            struct client* cp = client_search(*clienthp, temp.source);
             struct lab3message outpacket;
-            if (jointemp != NULL && jointemp->session_id == 0) {
-                struct session* sessiontemp = session_search(*sessionhp, atoi(temp.data));
-                if (sessiontemp != NULL) {
-                    /*Join the session*/
-                    struct client* attending = client_generate(&(sessiontemp->connected_client), temp.source, sockfd);
-                    jointemp->session_id = atoi(temp.data);
-                    /*Response*/
-                    outpacket.type = JN_ACK;
-                    sprintf(outpacket.data, "Joined session %s", temp.data);
-                    outpacket.size = strlen(outpacket.data);
-                    strcpy(outpacket.source, temp.source);
-                    char *dummy = packetToStr(outpacket);
-                    write(sockfd, dummy, BUFLEN);
-                    printf("%d join successful. \n", jointemp->session_id);
-                    free(dummy);
-                } else {
-                    outpacket.type = JN_NACK;
-                    sprintf(outpacket.data, "%d:Session does not exist.", atoi(temp.data));
-                    outpacket.size = strlen(outpacket.data);
-                    strcpy(outpacket.source, temp.source);
-                    char *dummy = packetToStr(outpacket);
-                    write(sockfd, dummy, BUFLEN);
-                    free(dummy); /*session doesn't exist. */
-                }
-            } else if (jointemp == NULL) {
+            int joinThisSess = atoi(temp.data);
+
+            if (cp == NULL) {
                 outpacket.type = JN_NACK;
                 sprintf(outpacket.data, "%d:Not logged in.", atoi(temp.data));
                 outpacket.size = strlen(outpacket.data);
@@ -329,42 +379,72 @@ void* client_handler(void* sock) {
                 char *dummy = packetToStr(outpacket);
                 write(sockfd, dummy, BUFLEN);
                 free(dummy); /*Not logged in */
-            } else if (jointemp->session_id != 0) {
+                continue;
+            }
+
+            if (searchSessionOfClient(&(cp->session_hp), joinThisSess) != NULL) {
                 outpacket.type = JN_NACK;
-                sprintf(outpacket.data, "%d:Already in a session.", atoi(temp.data));
+                sprintf(outpacket.data, "%d:Already in this session.", joinThisSess);
                 outpacket.size = strlen(outpacket.data);
                 strcpy(outpacket.source, temp.source);
                 char *dummy = packetToStr(outpacket);
                 write(sockfd, dummy, BUFLEN);
-                free(dummy); /*Already in a session*/
+                free(dummy);
+                continue;
             }
 
+            struct session* sessiontemp = session_search(*sessionhp, joinThisSess);
+            if (sessiontemp != NULL) {
+                /*Join the session*/
+                client_generate(&(sessiontemp->connected_client), temp.source, sockfd);
+                insertSessionToClient(&(cp->session_hp), joinThisSess);
+
+                /*Response*/
+                outpacket.type = JN_ACK;
+                sprintf(outpacket.data, "Joined session %d", joinThisSess);
+                outpacket.size = strlen(outpacket.data);
+                strcpy(outpacket.source, temp.source);
+                char *dummy = packetToStr(outpacket);
+                write(sockfd, dummy, BUFLEN);
+                printf("%d join successful. \n", joinThisSess);
+                free(dummy);
+            } else {
+                outpacket.type = JN_NACK;
+                sprintf(outpacket.data, "%d:Session does not exist.", atoi(temp.data));
+                outpacket.size = strlen(outpacket.data);
+                strcpy(outpacket.source, temp.source);
+                char *dummy = packetToStr(outpacket);
+                write(sockfd, dummy, BUFLEN);
+                free(dummy);
+            }
         } else if (temp.type == LEAVE_SESS) {
-            struct client* tp = client_search(*clienthp, temp.source);
-            if (tp != NULL) { //logged in
-                if (tp->session_id != 0) { //in a session
-                    struct session* sp = session_search(*sessionhp, tp->session_id);
+            struct client* cp = client_search(*clienthp, temp.source);
+            int leaveThisSession = atoi(temp.data);
+
+            if (cp != NULL) { //logged in
+                if (searchSessionOfClient(&(cp->session_hp), leaveThisSession) != NULL) { //in this session
+                    deleteSessionFromClient(&(cp->session_hp), leaveThisSession); // leave from this session
+                    struct session* sp = session_search(*sessionhp, leaveThisSession);
                     client_delete(&(sp->connected_client), temp.source);
-                    //if this is the last person in the session, delete the session
-                    printf("Leave session %d successful. \n", sp->session_id);
-                    if (sp->connected_client == NULL) {
-                        session_delete(sessionhp, tp->session_id);
+                    if (sp->connected_client == NULL) { //if this is the last person in the session, delete the session
+                        session_delete(sessionhp, leaveThisSession);
                     }
-                    tp->session_id = 0; // no longer in any session
+
                     struct lab3message outpacket;
                     outpacket.type = GEN_ACK;
-                    sprintf(outpacket.data, "Leave session %s", temp.data);
+                    sprintf(outpacket.data, "Leave session %d", leaveThisSession);
                     outpacket.size = strlen(outpacket.data);
                     strcpy(outpacket.source, temp.source);
                     char *dummy = packetToStr(outpacket);
                     write(sockfd, dummy, BUFLEN);
                     free(dummy);
-                    printf("Leave session %d successful. \n", sp->session_id);
+
+                    printf("Leave session %d successful. \n", leaveThisSession);
                     continue;
-                } else { // not in a session so send error message
+                } else { // not in this session so send error message
                     struct lab3message outpacket;
                     outpacket.type = GEN_NACK;
-                    strcpy(outpacket.data, "Not in any session.");
+                    sprintf(outpacket.data, "Not in session %d.", leaveThisSession);
                     outpacket.size = strlen(outpacket.data);
                     strcpy(outpacket.source, temp.source);
                     char *dummy = packetToStr(outpacket);
@@ -383,7 +463,8 @@ void* client_handler(void* sock) {
             }
         } else if (temp.type == NEW_SESS) {
             struct lab3message outpacket;
-            struct session* sp = session_search(*sessionhp, atoi(temp.data));
+            int sessionToCreate = atoi(temp.data);
+            struct session* sp = session_search(*sessionhp, sessionToCreate);
             struct client* cp = client_search(*clienthp, temp.source);
 
             if (cp == NULL) {
@@ -407,37 +488,23 @@ void* client_handler(void* sock) {
                 free(dummy);
                 continue;
             } else { // create and join
-                struct session* sessiontemp = session_generate(sessionhp, atoi(temp.data));
+                struct session* sessiontemp = session_generate(sessionhp, sessionToCreate);
+                client_generate(&(sessiontemp->connected_client), temp.source, sockfd);
+                insertSessionToClient(&(cp->session_hp), sessionToCreate);
 
-                if (cp->session_id == 0) { //not currently in session
-                    /*Join the session*/
-                    client_generate(&(sessiontemp->connected_client), temp.source, sockfd);
-                    cp->session_id = atoi(temp.data);
-
-                    /*Response*/
-                    outpacket.type = NS_ACK;
-                    sprintf(outpacket.data, "Created and joined session %s", temp.data);
-                    outpacket.size = strlen(outpacket.data);
-                    strcpy(outpacket.source, temp.source);
-                    char *dummy = packetToStr(outpacket);
-                    write(sockfd, dummy, BUFLEN);
-                    printf("%d create and join successful. \n", sessiontemp->session_id);
-                    free(dummy);
-                } else {
-                    outpacket.type = GEN_NACK;
-                    strcpy(outpacket.data, "Already in session.");
-                    outpacket.size = strlen(outpacket.data);
-                    strcpy(outpacket.source, temp.source);
-                    char *dummy = packetToStr(outpacket);
-                    write(sockfd, dummy, BUFLEN);
-                    free(dummy);
-                    continue;
-                }
+                /*Response*/
+                outpacket.type = NS_ACK;
+                sprintf(outpacket.data, "Created and joined session %d", sessionToCreate);
+                outpacket.size = strlen(outpacket.data);
+                strcpy(outpacket.source, temp.source);
+                char *dummy = packetToStr(outpacket);
+                write(sockfd, dummy, BUFLEN);
+                printf("%d create and join successful. \n", sessiontemp->session_id);
+                free(dummy);
             }
-        } else if (temp.type == MESSAGE) { // INCOMPLETE
+        } else if (temp.type == MESSAGE) {
             struct lab3message outpacket;
             struct client* cp = client_search(*clienthp, temp.source);
-            struct session* sp = session_search(*sessionhp, cp->session_id);
 
             if (cp == NULL) {
                 outpacket.type = GEN_NACK;
@@ -450,9 +517,12 @@ void* client_handler(void* sock) {
                 continue;
             }
 
-            if (cp->session_id == 0) {
+            int sessionToShare = atoi(strtok(temp.data, ":"));
+            char messageToShare[BUFLEN]; strcpy(messageToShare, strtok(NULL, ""));
+
+            if (searchSessionOfClient(&(cp->session_hp), sessionToShare) == NULL) {
                 outpacket.type = GEN_NACK;
-                strcpy(outpacket.data, "Not in a session.");
+                strcpy(outpacket.data, "Not in this session.");
                 outpacket.size = strlen(outpacket.data);
                 strcpy(outpacket.source, temp.source);
                 char *dummy = packetToStr(outpacket);
@@ -461,11 +531,12 @@ void* client_handler(void* sock) {
                 continue;
             }
 
+            struct session* sp = session_search(*sessionhp, sessionToShare);
             struct client* curr = sp->connected_client;
             while (curr != NULL) {
                 if (strcmp(curr->username, cp->username)) { // skip itself
                     outpacket.type = MESSAGE;
-                    strcpy(outpacket.data, temp.data);
+                    strcpy(outpacket.data, messageToShare);
                     outpacket.size = strlen(outpacket.data);
                     strcpy(outpacket.source, temp.source);
                     char *dummy = packetToStr(outpacket);
@@ -482,6 +553,7 @@ void* client_handler(void* sock) {
                 }
                 curr = curr->next;
             }
+
         } else if (temp.type == QUERY) {
             struct lab3message outpacket;
             struct client* cp = client_search(*clienthp, temp.source);
@@ -497,26 +569,29 @@ void* client_handler(void* sock) {
                 continue;
             }
 
-            struct client* curr = *clienthp;
-
-            // send the number of clients
-            int counter;
-            for (counter = 0; curr != NULL; curr = curr->next) {
-                counter++;
-            }
-
             // for each client, determine the sessions they're in
+            struct client* curr = *clienthp;
             curr = *clienthp;
             strcpy(outpacket.data, "QUERY: \n");
+
             while (curr != NULL) {
                 outpacket.type = QU_ACK;
-                char add[BUFLEN];
-                if (curr->session_id != 0) {
-                    sprintf(add, "Client %s is in session %d. \n", curr->username, curr->session_id);
-                } else {
-                    sprintf(add, "Client %s is not part of any sessions.\n", curr->username);
+                char add1[BUFLEN], add2[BUFLEN];
+                node_t* currSess = curr->session_hp;
+
+                if (currSess == NULL)
+                    sprintf(add1, "Client %s is not part of any sessions.\n", curr->username);
+                else
+                    sprintf(add1, "Client %s is in session(s): ", curr->username);
+                strcat(outpacket.data, add1);
+
+                while (currSess != NULL) {
+                    sprintf(add2, "%d ", currSess->session_id);
+                    strcat(outpacket.data, add2);
+                    currSess = currSess->next;
                 }
-                strcat(outpacket.data, add);
+
+                strcat(outpacket.data, "\n");
                 curr = curr->next;
             }
 
@@ -588,33 +663,13 @@ int main(int argc, char **argv) {
         thread_parameter->clientHead = &login;
         thread_parameter->sessionHead = &sessions;
 
-
-
         if (pthread_create(t + pcount, NULL, client_handler, (void*) thread_parameter)) {
-
             fprintf(stderr, "Error creating thread\n");
             return 1;
-
         }
         pcount++;
-        /*
-                while(1){
-                bp = buf;
-                bytes_to_read = BUFLEN;
-                while ((n = read(new_sd, bp, bytes_to_read)) > 0) {
-                    bp += n;
-                    bytes_to_read -= n;
-                }
-                printf("%s\n", buf);
-                // do something with the control message
-                //struct packet rPacket = parser(bp);
-                /*Actions based on commands
-        
-                write(new_sd, buf, BUFLEN);
-            }
-         */
-        //close(new_sd);
     }
+
     close(sd);
     return (0);
 }
