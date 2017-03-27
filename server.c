@@ -11,7 +11,7 @@
 
 // /login a 1 128.100.13.245 3000
 
-#define SERVER_TCP_PORT 3001 /* well-known port */
+#define SERVER_TCP_PORT 3000 /* well-known port */
 #define BUFLEN 1000  /* buffer length */
 #define MAX_NAME 20
 #define MAX_DATA 200
@@ -121,7 +121,7 @@ bool insertSessionToClient(node_t** head, int session_id) {
     newNode->next = NULL;
 
     // if this is the first session
-    if (curr = NULL) {
+    if (curr == NULL) {
         *head = newNode;
         return true;
     } else {
@@ -136,12 +136,32 @@ bool insertSessionToClient(node_t** head, int session_id) {
 bool deleteSessionFromClient(node_t** head, int session_id) {
     node_t* curr = *head;
     node_t* temp = NULL;
-    node_t* next = NULL;
+    node_t* prev = NULL;
+    
+    while(curr != NULL){
+        if(curr->session_id == session_id){
+            if(prev == NULL){
+                *head = curr->next;
+                free(curr);
+                return true;
+            }
+            else{
+                prev->next = curr->next;
+                free(curr);
+                return true;
+            }
+        }
+        prev = curr;
+        curr = curr->next;
+    }
+    
+    return false;
+/*
 
     if (curr->session_id == session_id) { // this session is the head
         next = (*head)->next;
-        free(*head);
         *head = next;
+        free(curr);
         return true;
     }
 
@@ -155,11 +175,22 @@ bool deleteSessionFromClient(node_t** head, int session_id) {
     curr->next = temp->next; // set the previous pointer
     free(temp);
     return true;
+*/
 }
 
 node_t* searchSessionOfClient(node_t** head, int session_id) {
     node_t* curr = *head;
+    
+    while(curr != NULL){
+        if(curr->session_id == session_id)
+            return curr;
+        else{
+            curr = curr->next;
+        }
+    }
+    return NULL;
 
+/*
     if (curr->session_id == session_id) { // this session is the head
         return curr;
     }
@@ -171,6 +202,7 @@ node_t* searchSessionOfClient(node_t** head, int session_id) {
         return NULL;
 
     return curr->next;
+*/
 }
 
 struct client* client_search(struct client* head, char* username) {
@@ -334,7 +366,8 @@ void* client_handler(void* sock) {
                     free(dummy);
                 }
             }
-        } else if (temp.type == EXIT) { //close this socket 
+        } 
+        else if (temp.type == EXIT) { //close this socket 
             struct client* cp = client_search(*clienthp, temp.source);
             if (cp != NULL) { //logged in
                 node_t* curr = cp->session_hp;
@@ -346,10 +379,9 @@ void* client_handler(void* sock) {
                     if (sp->connected_client == NULL) {
                         session_delete(sessionhp, curr->session_id);
                     }
-
-                    curr = curr->next;
                     int toBeDeleted = curr->session_id;
                     deleteSessionFromClient(&(cp->session_hp), toBeDeleted); // free memory of this session from client
+                    curr = curr->next;
                 }
                 client_delete(clienthp, temp.source); //log out
             }
@@ -366,7 +398,8 @@ void* client_handler(void* sock) {
             printf("Exit successful. \n");
             close(sockfd);
             break;
-        } else if (temp.type == JOIN) {
+        } 
+        else if (temp.type == JOIN) {
             struct client* cp = client_search(*clienthp, temp.source);
             struct lab3message outpacket;
             int joinThisSess = atoi(temp.data);
@@ -417,7 +450,8 @@ void* client_handler(void* sock) {
                 write(sockfd, dummy, BUFLEN);
                 free(dummy);
             }
-        } else if (temp.type == LEAVE_SESS) {
+        } 
+        else if (temp.type == LEAVE_SESS) {
             struct client* cp = client_search(*clienthp, temp.source);
             int leaveThisSession = atoi(temp.data);
 
@@ -461,7 +495,8 @@ void* client_handler(void* sock) {
                 write(sockfd, dummy, BUFLEN);
                 free(dummy);
             }
-        } else if (temp.type == NEW_SESS) {
+        } 
+        else if (temp.type == NEW_SESS) {
             struct lab3message outpacket;
             int sessionToCreate = atoi(temp.data);
             struct session* sp = session_search(*sessionhp, sessionToCreate);
@@ -502,7 +537,8 @@ void* client_handler(void* sock) {
                 printf("%d create and join successful. \n", sessiontemp->session_id);
                 free(dummy);
             }
-        } else if (temp.type == MESSAGE) {
+        } 
+        else if (temp.type == MESSAGE) {
             struct lab3message outpacket;
             struct client* cp = client_search(*clienthp, temp.source);
 
@@ -554,7 +590,8 @@ void* client_handler(void* sock) {
                 curr = curr->next;
             }
 
-        } else if (temp.type == QUERY) {
+        } 
+        else if (temp.type == QUERY) {
             struct lab3message outpacket;
             struct client* cp = client_search(*clienthp, temp.source);
 

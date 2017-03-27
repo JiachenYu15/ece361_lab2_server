@@ -9,19 +9,19 @@ CND_DISTDIR=dist
 # Debug configuration
 CND_PLATFORM_Debug=GNU-Linux
 CND_ARTIFACT_DIR_Debug=dist/Debug/GNU-Linux
-CND_ARTIFACT_NAME_Debug=ece361_lab2_server
-CND_ARTIFACT_PATH_Debug=dist/Debug/GNU-Linux/ece361_lab2_server
+CND_ARTIFACT_NAME_Debug=server
+CND_ARTIFACT_PATH_Debug=dist/Debug/GNU-Linux/server
 CND_PACKAGE_DIR_Debug=dist/Debug/GNU-Linux/package
-CND_PACKAGE_NAME_Debug=ece361lab2server.tar
-CND_PACKAGE_PATH_Debug=dist/Debug/GNU-Linux/package/ece361lab2server.tar
+CND_PACKAGE_NAME_Debug=server.tar
+CND_PACKAGE_PATH_Debug=dist/Debug/GNU-Linux/package/server.tar
 # Release configuration
 CND_PLATFORM_Release=GNU-Linux
 CND_ARTIFACT_DIR_Release=dist/Release/GNU-Linux
-CND_ARTIFACT_NAME_Release=ece361_lab2_server
-CND_ARTIFACT_PATH_Release=dist/Release/GNU-Linux/ece361_lab2_server
+CND_ARTIFACT_NAME_Release=server
+CND_ARTIFACT_PATH_Release=dist/Release/GNU-Linux/server
 CND_PACKAGE_DIR_Release=dist/Release/GNU-Linux/package
-CND_PACKAGE_NAME_Release=ece361lab2server.tar
-CND_PACKAGE_PATH_Release=dist/Release/GNU-Linux/package/ece361lab2server.tar
+CND_PACKAGE_NAME_Release=server.tar
+CND_PACKAGE_PATH_Release=dist/Release/GNU-Linux/package/server.tar
 #
 # include compiler specific variables
 #
