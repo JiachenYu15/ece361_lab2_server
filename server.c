@@ -32,6 +32,8 @@
 #define GEN_ACK 14
 #define GEN_NACK 15
 #define EXIT_ACK 16
+#define INVITATION 17
+#define INVITE_RESPONSE 18
 
 typedef struct node {
     int session_id;
@@ -638,6 +640,76 @@ void* client_handler(void* sock) {
             write(sockfd, dummy, BUFLEN);
             //            printf("sending from query server: %s \n", dummy);
             free(dummy);
+        }
+        else if (temp.type == INVITATION) {
+            struct lab3message outpacket;
+            
+            /*Check if the sender of the invitation is logged in*/
+            struct client* cp = client_search(*clienthp, temp.source);
+            if (cp == NULL) {
+                outpacket.type = GEN_NACK;
+                strcpy(outpacket.data, "Not logged in.");
+                outpacket.size = strlen(outpacket.data);
+                strcpy(outpacket.source, temp.source);
+                char *dummy = packetToStr(outpacket);
+                write(sockfd, dummy, BUFLEN);
+                free(dummy);
+                continue;
+            }
+            
+            /*Parse the invitation information*/
+            int sessionToInvite = atoi(strtok(temp.data, ":"));
+            char invitee[BUFLEN]; 
+            strcpy(invitee, strtok(NULL, ""));
+            
+            /*Check if the session exists*/
+            struct session* sp = session_search(*sessionhp, sessionToInvite);
+            if (sp == NULL) {
+                outpacket.type = GEN_NACK;
+                strcpy(outpacket.data, "Session doesn't exist.");
+                outpacket.size = strlen(outpacket.data);
+                strcpy(outpacket.source, temp.source);
+                char *dummy = packetToStr(outpacket);
+                write(sockfd, dummy, BUFLEN);
+                free(dummy);
+                continue;
+            }
+            
+            /*Check if the invitee exists*/
+            struct client* curr = client_search(*clienthp, invitee);
+            if (curr == NULL) {
+                outpacket.type = GEN_NACK;
+                strcpy(outpacket.data, "Invitee not logged in or doesn't exist");
+                outpacket.size = strlen(outpacket.data);
+                strcpy(outpacket.source, temp.source);
+                char *dummy = packetToStr(outpacket);
+                write(sockfd, dummy, BUFLEN);
+                free(dummy);
+                continue;
+            }
+            
+            /*Send the invitation to the invitee*/
+            outpacket.type = INVITATION;
+            sprintf(outpacket.data, "%d:%s", sessionToInvite, temp.source);
+            //strcpy(outpacket.data, temp.data);
+            outpacket.size = strlen(outpacket.data);
+            strcpy(outpacket.source, temp.source);
+            char *dummy = packetToStr(outpacket);
+            write(curr->socket_descriptor, dummy, BUFLEN);
+            free(dummy);
+            
+            outpacket.type = GEN_ACK;
+            //sprintf(outpacket.data, "%d:%s", sessionToInvite, temp.source);
+            strcpy(outpacket.data, "Invitation sent.");
+            outpacket.size = strlen(outpacket.data);
+            strcpy(outpacket.source, temp.source);
+            dummy = packetToStr(outpacket);
+            write(cp->socket_descriptor, dummy, BUFLEN);
+            free(dummy);
+            continue;
+        }
+        else if(temp.type == INVITE_RESPONSE){
+            
         }
     }
 
