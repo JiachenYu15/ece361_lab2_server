@@ -574,7 +574,7 @@ void* client_handler(void* sock) {
             while (curr != NULL) {
                 if (strcmp(curr->username, cp->username)) { // skip itself
                     outpacket.type = MESSAGE;
-                    strcpy(outpacket.data, messageToShare);
+                    sprintf(outpacket.data, "Session %d Message: %s", sessionToShare, messageToShare);
                     outpacket.size = strlen(outpacket.data);
                     strcpy(outpacket.source, temp.source);
                     char *dummy = packetToStr(outpacket);
